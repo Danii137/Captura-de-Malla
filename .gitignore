@@ -1,0 +1,21 @@
+# dependencias y resultados de las pruebas
+node_modules/
+pruebas/out/
+pruebas/profile_*/
+package-lock.json
+
+# mallas y capturas (contenido de Google: no se suben)
+*.cmal
+*.glb
+*.gltf
+*.fbx
+*.obj
+*.mtl
+*.stl
+*.rdc
+*.zip
+
+# sistema
+Thumbs.db
+desktop.ini
+.DS_Store

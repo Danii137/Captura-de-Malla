@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Captar malla",
+  "version": "2.0.0",
+  "description": "Google Earth: marca un rectángulo y guarda su malla 3D con el máximo detalle, en metros, como GLB, FBX, OBJ o STL. Sin RenderDoc ni Blender.",
+  "permissions": ["debugger", "storage", "unlimitedStorage", "tabs", "downloads"],
+  "host_permissions": ["https://earth.google.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    { "matches": ["https://earth.google.com/web*"], "js": ["panel.js"], "run_at": "document_idle" }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Captar malla (Google Earth)",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "commands": {
+    "capturar": {
+      "suggested_key": { "default": "Alt+Shift+M" },
+      "description": "Google Earth: captura rápida de lo que se ve"
+    }
+  }
+}

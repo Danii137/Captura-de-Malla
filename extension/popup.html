@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Captar malla</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="24" height="24">
+    <h1>Captar malla</h1>
+  </header>
+
+  <section id="earth" hidden>
+    <p class="estado"><span class="punto on"></span>Estás en <b>Google Earth</b>.</p>
+    <p class="nota">Usa el panel <b>Captar malla</b> que aparece a la izquierda de Google Earth:
+      pulsa <b>Capturar área</b>, marca un rectángulo y espera. Se guarda solo en <b>Descargas › Captar malla</b>.</p>
+    <p class="nota">Si no ves el panel, recarga la página (F5).</p>
+    <p id="progreso" class="progreso"></p>
+    <button id="desactivar" class="secundario" hidden>Desactivar modo captura</button>
+  </section>
+
+  <section id="otra" hidden>
+    <p class="nota">Captar malla funciona solo en <b>Google Earth</b> (earth.google.com).</p>
+    <button id="abrirEarth" class="principal">Abrir Google Earth</button>
+  </section>
+
+  <footer>
+    <button id="guardadas" class="enlace">Ver capturas guardadas</button>
+    <p class="legal">Las condiciones de Google Earth limitan reutilizar su contenido. Úsalo como referencia de trabajo y respeta sus condiciones.</p>
+  </footer>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

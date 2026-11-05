@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Captar malla · visor</title>
+<link rel="icon" href="icons/icon32.png">
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <header class="cab">
+      <img src="icons/icon32.png" alt="" width="22" height="22">
+      <div>
+        <h1>Captar malla</h1>
+        <div id="titulo" class="sub">Sin captura abierta</div>
+      </div>
+    </header>
+
+    <section id="secAuto" class="sec auto" hidden>
+      <h2>Archivos guardados</h2>
+      <div id="autoTxt"></div>
+      <ul id="autoArch" class="arch"></ul>
+      <p class="ayuda"><button id="autoCarpeta" class="enlace">Abrir la carpeta</button></p>
+    </section>
+
+    <section id="secResumen" class="sec" hidden>
+      <div id="resumen"></div>
+      <div id="geo" class="geo" hidden></div>
+      <ul id="avisos" class="avisos"></ul>
+    </section>
+
+    <section id="secGrupos" class="sec" hidden>
+      <h2>Qué incluir</h2>
+      <p class="ayuda">Cada línea es un tipo de dibujo de la página. Las desmarcadas parecen interfaz, cielo o efectos; puedes activarlas si las necesitas.</p>
+      <div id="grupos"></div>
+      <label class="check"><input type="checkbox" id="ocultarPeq" checked> Quitar rectángulos de pantalla (2 triángulos sueltos)</label>
+    </section>
+
+    <section id="secRecorte" class="sec" hidden>
+      <h2>Recorte</h2>
+      <label class="check"><input type="checkbox" id="recorteOn"> Quedarme solo con un círculo de radio</label>
+      <div class="fila">
+        <input type="range" id="radio" min="10" max="2000" step="10" value="250">
+        <input type="number" id="radioNum" min="1" step="1" value="250"> <span id="radioUd">m</span>
+      </div>
+      <p class="ayuda">Centro: <span id="centroTxt">origen</span>. Haz <b>doble clic</b> en el modelo para mover el centro. <button id="centroOrigen" class="enlace">Volver al origen</button></p>
+    </section>
+
+    <section id="secSel" class="sec" hidden>
+      <h2>Selección</h2>
+      <p id="selTxt" class="ayuda">Haz clic en una pieza para seleccionarla.</p>
+      <div class="fila">
+        <button id="ocultarSel" disabled>Ocultar pieza</button>
+        <button id="mostrarTodo" disabled>Mostrar todo</button>
+      </div>
+    </section>
+
+    <section id="secExport" class="sec" hidden>
+      <h2>Guardar</h2>
+      <p class="ayuda">Los archivos se guardan en <b>Descargas › Captar malla</b>.</p>
+      <div id="cuenta" class="cuenta"></div>
+      <div class="formatos">
+        <button data-fmt="glb" class="fmt"><b>GLB</b><span>Con texturas. Blender, web, Twinmotion</span></button>
+        <button data-fmt="fbx" class="fmt"><b>FBX</b><span>Con texturas incrustadas. 3ds Max, SketchUp, Blender</span></button>
+        <button data-fmt="obj" class="fmt"><b>OBJ</b><span>ZIP con .obj, .mtl y texturas</span></button>
+        <button data-fmt="stl" class="fmt"><b>STL</b><span>Solo geometría. Impresión 3D, CAD</span></button>
+      </div>
+      <details class="opciones">
+        <summary>Opciones de exportación</summary>
+        <label>Nombre del archivo <input type="text" id="nombre" value="captura"></label>
+        <label class="check"><input type="checkbox" id="unir" checked> Unir piezas que comparten material (menos objetos)</label>
+        <label class="check" id="filaOriginal"><input type="checkbox" id="originales"> Mantener las coordenadas originales (si no, se centra en el origen)</label>
+        <label class="check" id="filaSuelo" hidden><input type="checkbox" id="suelo"> Bajar al suelo (Z más baja = 0, en vez de altitud real)</label>
+        <label>Escala <input type="number" id="escala" value="1" step="any" min="0"> <small id="escalaTxt"></small></label>
+        <label>Eje vertical en OBJ y STL
+          <select id="ejeObj">
+            <option value="auto" selected>Automático (OBJ: Y arriba · STL: Z arriba)</option>
+            <option value="Z">Z arriba (CAD, Rhino, Revit, impresión 3D)</option>
+            <option value="Y">Y arriba (Blender importa OBJ así)</option>
+          </select>
+        </label>
+        <p class="ayuda">GLB y FBX llevan siempre Y arriba por norma del formato; Blender y 3ds Max lo convierten solos a Z arriba.</p>
+      </details>
+      <p id="estadoExport" class="estado"></p>
+      <p class="ayuda"><button id="guardarCmal" class="enlace">Guardar la captura sin procesar (.cmal)</button> para reprocesarla más adelante o pasarla a otro ordenador con esta extensión.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Capturas guardadas <button id="recargarLista" class="enlace">actualizar</button></h2>
+      <div id="lista" class="lista"></div>
+      <p class="ayuda">Se guardan solo en este ordenador (dentro de Chrome). Borra las que no necesites: ocupan espacio.</p>
+      <p class="ayuda"><button id="abrirCmal" class="enlace">Abrir un archivo .cmal</button><input type="file" id="archivoCmal" accept=".cmal" hidden></p>
+    </section>
+  </aside>
+
+  <main id="vista">
+    <canvas id="lienzo"></canvas>
+    <div id="barra">
+      <button id="bEncuadrar" title="Encuadrar todo">Encuadrar</button>
+      <button id="bPlanta" title="Vista desde arriba">Planta</button>
+      <button id="bTexturas" title="Ver u ocultar texturas">Texturas</button>
+      <button id="bAlambre" title="Ver aristas">Alambre</button>
+    </div>
+    <div id="ayudaVista">Arrastrar: girar · Rueda: zoom · Botón derecho: desplazar · Clic: seleccionar · Doble clic: centro del recorte</div>
+    <div id="cargando" hidden><div class="spin"></div><span id="cargandoTxt">Cargando…</span></div>
+    <div id="vacio" hidden>
+      <h2>No hay ninguna captura abierta</h2>
+      <p>Para capturar: abre <b>Google Earth</b> (earth.google.com/web), pulsa <b>Capturar área</b> en el panel <b>Captar malla</b> de la izquierda y marca un rectángulo.</p>
+      <p>O abre una captura guardada de la lista de la izquierda.</p>
+    </div>
+  </main>
+</div>
+<script type="module" src="viewer.js"></script>
+</body>
+</html>

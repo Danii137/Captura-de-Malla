@@ -1,0 +1,26 @@
+:root { --fondo: #ffffff; --texto: #1d2329; --suave: #5b6670; --borde: #d9dee3; --acento: #1f5f74; --acento2: #174a5a; --ok: #2f6f4f; --mal: #b3261e; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 340px; font: 13px/1.45 system-ui, "Segoe UI", sans-serif; color: var(--texto); background: var(--fondo); }
+header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; border-bottom: 1px solid var(--borde); }
+h1 { font-size: 15px; margin: 0; }
+section { padding: 10px 14px 4px; }
+.estado { margin: 0 0 6px; }
+.punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.punto.on { background: var(--ok); } .punto.off { background: #a7b0b8; }
+.nota { color: var(--suave); margin: 4px 0 8px; }
+fieldset { border: 1px solid var(--borde); border-radius: 6px; padding: 6px 10px 8px; margin: 6px 0 10px; }
+legend { color: var(--suave); padding: 0 4px; }
+label { display: block; margin: 4px 0; cursor: pointer; }
+label small { color: var(--suave); }
+label.check { margin-top: 8px; }
+button { font: inherit; cursor: pointer; border-radius: 6px; }
+button.principal { width: 100%; padding: 9px 10px; border: 0; background: var(--acento); color: #fff; font-weight: 600; font-size: 14px; }
+button.principal:hover { background: var(--acento2); }
+button.principal:disabled { background: #9aa7b0; cursor: default; }
+button.secundario { width: 100%; padding: 6px; border: 1px solid var(--borde); background: #f5f7f8; color: var(--texto); margin: 6px 0 4px; }
+button.enlace { border: 0; background: none; color: var(--acento); padding: 0; text-decoration: underline; }
+.progreso { min-height: 1.4em; margin: 8px 0; font-weight: 600; }
+.progreso.mal { color: var(--mal); } .progreso.ok { color: var(--ok); }
+kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--borde); border-bottom-width: 2px; border-radius: 3px; padding: 0 3px; background: #f5f7f8; }
+footer { border-top: 1px solid var(--borde); padding: 8px 14px 12px; }
+.legal { color: var(--suave); font-size: 11px; margin: 8px 0 0; }

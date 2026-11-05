@@ -1,0 +1,7 @@
+{
+  "name": "captar-malla-pruebas",
+  "private": true,
+  "type": "module",
+  "description": "Pruebas automáticas de la extensión Captar malla",
+  "dependencies": { "puppeteer-core": "^24.0.0", "ws": "^8.18.0", "gltf-validator": "^2.0.0-dev.3.10", "assimpjs": "^0.0.10", "jpeg-js": "0.4.4" }
+}
