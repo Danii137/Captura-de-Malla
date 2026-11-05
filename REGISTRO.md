@@ -93,6 +93,12 @@ El usuario probó la 2.0.0 («funciona bien, pero creo que se puede mejorar»). 
   - GLB de 94,6 MB, validador de Khronos 0 errores y 0 avisos;
   - STL de 31,4 MB, 200 × 147 × 36 mm a 1:1500, cerrado en Blender.
 - Las imágenes llevan la atribución a Google Earth y sus proveedores.
+- **Vídeos y animaciones** (con FFmpeg 9.0.2, instalado en el equipo con winget a petición del usuario):
+  - `docs/video/demo.mp4`: 26 s, 1280×720, 4,5 MB. Grabación real con `video_demo.mjs`: 5 tramos rotulados, la captura acelerada unas 13 veces.
+  - `docs/video/giro.mp4`: 6 s, 5,4 MB. Giro de 360° renderizado en Blender con `blender_giro.py`.
+  - `docs/img/demo.webp` (3,2 MB) y `docs/img/giro.webp` (3,8 MB): animaciones para el README. Los GIF equivalentes pesaban 12,2 y 27,9 MB, así que no se suben; `GIF=1` en `hacer_videos.mjs` los hace igualmente.
+  - Fotogramas revisados uno a uno: rótulos legibles, puntero visible, captura con el detalle máximo de fondo.
+  - Un fallo de la grabación, no de la extensión: las capturas de pantalla recortadas de puppeteer cambiaban el tamaño de la página y chocaban con el de la extensión. Se corrigió con `captureBeyondViewport: false`.
 
 ### Abierto / sin comprobar
 - Con un **Chrome con ventana**, el segundo plano se ha comprobado en el experimento (pestaña oculta y minimizada), pero la extensión completa solo se ha probado sin ventana.

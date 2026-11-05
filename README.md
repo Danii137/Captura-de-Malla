@@ -4,8 +4,17 @@
 
 ![Versión 2.1.0](https://img.shields.io/badge/versión-2.1.0-1a73e8) ![Chrome](https://img.shields.io/badge/Chrome-extensión_MV3-3fa96b) ![Formatos](https://img.shields.io/badge/formatos-GLB_·_FBX_·_OBJ_·_STL-2a6f9e) ![Sin RenderDoc ni Blender](https://img.shields.io/badge/sin-RenderDoc_ni_Blender-555)
 
-![Plaza Mayor de Madrid capturada con Captar malla y abierta en Blender](docs/img/resultado-glb.jpg)
-<sub>Plaza Mayor de Madrid, 300 × 220 m, capturada en 78 s con el detalle máximo y abierta en Blender (GLB, 1.044.000 triángulos, texturas a unos 4 cm por píxel).</sub>
+<picture>
+  <source srcset="docs/img/giro.webp" type="image/webp">
+  <img src="docs/img/resultado-glb.jpg" alt="Plaza Mayor de Madrid capturada con Captar malla, girando en Blender" width="100%">
+</picture>
+<sub>Plaza Mayor de Madrid, 300 × 220 m, capturada en 78 s con el detalle máximo y abierta en Blender (GLB, 1.044.000 triángulos, texturas a unos 4 cm por píxel). Vídeo: <a href="docs/video/giro.mp4">giro.mp4</a>.</sub>
+
+## Demo en 25 segundos
+
+![Demo: panel, rectángulo, captura acelerada, archivos guardados y visor 3D](docs/img/demo.webp)
+
+<sub>Grabación real de la extensión, con la captura acelerada unas 13 veces (83 s reales). En MP4: <a href="docs/video/demo.mp4">demo.mp4</a>.</sub>
 
 ## Qué hace
 
@@ -77,8 +86,8 @@ Todo ocurre en el propio equipo: la extensión no envía nada a internet.
 | Carpeta | Contenido |
 |---|---|
 | `extension/` | La extensión (lo que se carga en Chrome) |
-| `pruebas/` | Pruebas automáticas con un Chrome de perfil temporal (`npm install` dentro de la carpeta). `capturas_readme.mjs` rehace las capturas de esta página |
-| `docs/img/` | Imágenes de esta página |
+| `pruebas/` | Pruebas automáticas con un Chrome de perfil temporal (`npm install` dentro de la carpeta). `capturas_readme.mjs`, `video_demo.mjs`, `blender_giro.py` y `hacer_videos.mjs` rehacen las imágenes y los vídeos de esta página (con FFmpeg) |
+| `docs/` | Imágenes (`img/`), animaciones y vídeos (`video/`) de esta página |
 
 ## Condiciones de uso
 

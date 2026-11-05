@@ -19,6 +19,10 @@ Preparar (una vez): abrir una consola en esta carpeta y ejecutar `npm install`.
 | **Versión 2 (Google Earth, áreas)** | | |
 | `e2e_area.mjs` | Flujo completo con la extensión, como un usuario: panel → **Capturar área** → arrastrar rectángulo → al soltar empieza → archivos en `out/<nombre>` (con nombres de Chrome). `OCULTA=1`: cambia a otra pestaña nada más empezar. `DOS=1`: al terminar, «Capturar otra área» y repite | `node e2e_area.mjs e2e_area 300 200 1100 650 glb,stl max` |
 | `capturas_readme.mjs` | Rehace las capturas de pantalla del README (panel, rectángulo, capturando, terminado, visor) sobre la Plaza Mayor, y guarda el GLB y el STL para renderizarlos con `blender_render.py` y `blender_stl_check.py`. Cierra solo el aviso «Novedades» de Earth si aparece | `node capturas_readme.mjs out/readme` |
+| `video_demo.mjs` | Graba la demo del README fotograma a fotograma (panel, rectángulo, captura acelerada, terminado, visor girando), con un puntero dibujado, y deja la lista de fotogramas y los rótulos | `node video_demo.mjs <salida>` |
+| `blender_giro.py` | Giro de 360° alrededor del GLB con texturas, en fotogramas PNG | `blender -b --factory-startup -P blender_giro.py -- <glb> <carpeta_absoluta> 144 1280 720` |
+| `hacer_videos.mjs` | Monta con **FFmpeg** la demo (MP4 con rótulos) y el giro (MP4), y sus animaciones WebP para el README (`GIF=1`: también GIF) | `node hacer_videos.mjs <demo> <giro> ../docs` |
+| `earth_aviso.mjs` | Cierra el aviso «Novedades» de Google Earth si aparece (lo usan los guiones de capturas y vídeo) | — |
 | `stl_test.mjs` | STL para imprimir de un área: sólido cerrado (aristas, degenerados, volumen), base, tamaño en mm y peso | `node stl_test.mjs out/area/madrid [escala] [base_mm] [rejilla_mm]` |
 | `blender_stl_check.py` | Abre el STL en Blender sin ventana: aristas abiertas o no manifold, normales, volumen e imágenes | `blender -b --factory-startup -P blender_stl_check.py -- <stl> <prefijo_absoluto>` |
 | `area_test.mjs` | Recorrido de un área con `lib/earth.js` por CDP, sin la interfaz; guarda `.cmal` y `.json` y mide la cobertura | `node area_test.mjs 40.4153 -3.7074 300 200 max madrid` |

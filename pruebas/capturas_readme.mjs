@@ -3,7 +3,7 @@
 // renderizarlos luego en Blender (blender_render.py y blender_stl_check.py).
 // Uso: node capturas_readme.mjs [carpeta_salida]   (por defecto out/readme)
 import puppeteer from 'puppeteer-core';
-import jpeg from 'jpeg-js';
+import { closeEarthDialog as closeEarthDialogBase } from './earth_aviso.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 const EXT = path.resolve(import.meta.dirname, '../extension');
@@ -21,28 +21,7 @@ const browser = await puppeteer.launch({
   defaultViewport: null,
 });
 const jpg = (n) => path.join(OUT, n + '.jpg');
-// El aviso «Novedades de Google Earth» (interfaz dibujada, sin elementos de la página que pulsar): se busca
-// en la imagen un recuadro blanco grande en el centro y se pulsa su ✕ (esquina superior derecha).
-// (Esc no sirve: saca a Earth del mapa.)
-async function closeEarthDialog(page) {
-  for (let k = 0; k < 3; k++) {
-    const img = jpeg.decode(await page.screenshot({ type: 'jpeg', quality: 80 }), { useTArray: true });
-    const { width: W, height: H, data } = img;
-    const white = (x, y) => { const i = (y * W + x) * 4; return data[i] > 236 && data[i + 1] > 236 && data[i + 2] > 236; };
-    const x0 = Math.round(W * 0.42), x1 = Math.round(W * 0.58);
-    let top = -1, bottom = -1;
-    for (let y = 0; y < H; y++) {
-      let n = 0; for (let x = x0; x < x1; x++) if (white(x, y)) n++;
-      if (n / (x1 - x0) > 0.97) { if (top < 0) top = y; bottom = y; } else if (top >= 0 && y - bottom > 3) { if (bottom - top > 200) break; top = bottom = -1; }
-    }
-    if (top < 0 || bottom - top < 200) return k > 0;
-    let right = Math.round(W / 2); while (right < W - 1 && white(right + 1, top + 12)) right++;
-    console.log(t(), 'aviso de Earth en pantalla: se cierra', JSON.stringify({ top, bottom, right }));
-    await page.mouse.click(right - 44, top + 43);
-    await sleep(1500);
-  }
-  return true;
-}
+const closeEarthDialog = (page) => closeEarthDialogBase(page, (...a) => console.log(t(), ...a));
 try {
   const bcdp = await browser.target().createCDPSession();
   await bcdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: OUT, eventsEnabled: true });
@@ -90,7 +69,7 @@ try {
   // durante la captura la página se pone a 3840×2400 (reducida): se recorta la esquina con el panel a tamaño real
   for (let i = 0; i < 60; i++) { await sleep(1000); const s = await P(`$('corTxt').textContent`).catch(() => ''); if (/posición 2/.test(s || '')) break; }
   await sleep(1500);
-  await page.screenshot({ path: jpg('03_capturando'), type: 'jpeg', quality: 85, clip: { x: 0, y: 0, width: 1000, height: 620 } });
+  await page.screenshot({ path: jpg('03_capturando'), type: 'jpeg', quality: 85, clip: { x: 0, y: 0, width: 1000, height: 620 }, captureBeyondViewport: false });
   console.log(t(), '03 capturando:', await P(`$('corTxt').textContent`));
   let fin = false;
   for (let i = 0; i < 600 && !fin; i++) { await sleep(1000); fin = await P(`!$('sFin').hidden`).catch(() => false); }
