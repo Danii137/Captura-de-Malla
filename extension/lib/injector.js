@@ -33,17 +33,44 @@ export function createInjector({ send, hookSource, log = () => { }, b64decode })
     await setupPageLike('', 'page', '');
   }
 
+  // Peticiones de teselas de Google Earth en curso (las hace un worker). Sirve para saber cuándo ha
+  // terminado de cargar: Earth puede dejar de dibujar casi un segundo mientras espera teselas.
+  const NET_RE = /\/rt\/earth\//;
+  const net = { on: false, pending: new Map(), last: 0, seen: 0 };
+  const NET_ENABLE = { maxTotalBufferSize: 100000, maxResourceBufferSize: 50000 };
+  async function netWatch(on) {
+    if (net.on === !!on) return;
+    net.on = !!on; net.pending.clear(); net.last = Date.now(); net.seen = 0;
+    await Promise.all([...sessions.keys()].map((sid) => trySend(sid, on ? 'Network.enable' : 'Network.disable', on ? NET_ENABLE : {})));
+  }
+  function netState() {
+    const now = Date.now();
+    let pending = 0;
+    for (const [k, t0] of net.pending) { if (now - t0 > 15000) net.pending.delete(k); else pending++; } // las colgadas no cuentan
+    return { on: net.on, pending, quietMs: now - net.last, seen: net.seen };
+  }
+
   async function onEvent(sid, method, params) {
     sid = sid || '';
+    if (method === 'Network.requestWillBeSent') {
+      if (net.on && NET_RE.test(params.request && params.request.url || '')) { net.pending.set(sid + ':' + params.requestId, Date.now()); net.last = Date.now(); net.seen++; }
+      return;
+    }
+    if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+      if (net.pending.delete(sid + ':' + params.requestId)) net.last = Date.now();
+      return;
+    }
     if (method === 'Target.attachedToTarget') {
       const ti = params.targetInfo || {};
       const csid = params.sessionId;
       if (ti.type === 'iframe' || ti.type === 'page') await setupPageLike(csid, ti.type, ti.url);
       else if (ti.type === 'worker' || ti.type === 'shared_worker') await setupWorker(csid, ti.type, ti.url);
       else await trySend(csid, 'Runtime.runIfWaitingForDebugger');
+      if (net.on && sessions.has(csid)) await trySend(csid, 'Network.enable', NET_ENABLE);
       log('enganchado', ti.type, (ti.url || '').slice(0, 100));
     } else if (method === 'Target.detachedFromTarget') {
       sessions.delete(params.sessionId);
+      for (const k of net.pending.keys()) if (k.startsWith(params.sessionId + ':')) net.pending.delete(k);
     } else if (method === 'Debugger.paused') {
       const s = sessions.get(sid);
       if (s && params.reason === 'instrumentation' && !s.injected) {
@@ -126,16 +153,23 @@ export function createInjector({ send, hookSource, log = () => { }, b64decode })
     return { parts: res.filter((r) => r.summary && !r.summary.error && r.summary.draws > 0), all: res, hooked, realms: sts.length, silent };
   }
 
-  async function pull(part, onProgress) {
+  // Copia la captura de la página por trozos (base64), con 3 trozos en camino a la vez
+  async function pull(part, onProgress, { chunk = 8 * 1024 * 1024, parallel = 3 } = {}) {
     const size = part.summary.bytes;
     const out = new Uint8Array(size);
-    const CH = 6 * 1024 * 1024;
-    for (let off = 0; off < size; off += CH) {
-      const b64 = await evalIn(part.realm, `self.__captarMalla.chunk(${JSON.stringify(part.summary.id)}, ${off}, ${CH})`, true, 120000);
-      const bytes = b64decode(b64);
-      out.set(bytes, off);
-      if (onProgress) onProgress(Math.min(size, off + CH), size);
+    const offs = [];
+    for (let off = 0; off < size; off += chunk) offs.push(off);
+    let next = 0, got = 0;
+    async function worker() {
+      while (next < offs.length) {
+        const off = offs[next++];
+        const b64 = await evalIn(part.realm, `self.__captarMalla.chunk(${JSON.stringify(part.summary.id)}, ${off}, ${chunk})`, true, 120000);
+        const bytes = b64decode(b64);
+        out.set(bytes, off); got += bytes.length;
+        if (onProgress) onProgress(got, size);
+      }
     }
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, offs.length)) }, worker));
     return out;
   }
   async function free(part) {
@@ -153,5 +187,5 @@ export function createInjector({ send, hookSource, log = () => { }, b64decode })
     return best;
   }
 
-  return { setupRoot, onEvent, status, captureAll, pull, free, sessions, realms, evalIn, glRealm };
+  return { setupRoot, onEvent, status, captureAll, pull, free, sessions, realms, evalIn, glRealm, netWatch, netState };
 }

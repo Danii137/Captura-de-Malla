@@ -9,7 +9,7 @@
   const send = (msg) => new Promise((res) => { try { chrome.runtime.sendMessage(msg, (r) => { void chrome.runtime.lastError; res(r || {}); }); } catch (e) { res({ error: 'La extensión se ha actualizado: recarga la página (F5).' }); } });
   const fmtN = (n, d = 0) => Number(n).toLocaleString('es-ES', { maximumFractionDigits: d, minimumFractionDigits: d });
   const fmtMB = (b) => fmtN(b / 1048576, 1) + ' MB';
-  const fmtT = (s) => (s < 90 ? `${Math.round(s)} s` : `${fmtN(s / 60, 0)} min`);
+  const fmtT = (s) => (s < 90 ? `${Math.round(s)} s` : `${fmtN(s / 60, s < 600 ? 1 : 0)} min`);
 
   // ---------------------------------------------------------------- interfaz (sombra aislada)
   const host = document.createElement('div');
@@ -36,6 +36,9 @@
   .fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .fila label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
   select { padding: 4px 6px; border-radius: 6px; border: 1px solid #c7d0d9; font-size: 12.5px; flex: 1; }
+  input.num { width: 64px; padding: 3px 5px; border-radius: 6px; border: 1px solid #c7d0d9; font-size: 12.5px; }
+  input.num.corto { width: 44px; }
+  .fila.stl { font-size: 12.5px; color: #33424f; gap: 6px; }
   .nota { color: #5b6b7a; font-size: 12px; }
   .enlace { color: #1a73e8; cursor: pointer; text-decoration: underline; background: none; border: 0; padding: 0; font-size: 12.5px; }
   .barra { height: 8px; background: #e3e9ef; border-radius: 4px; overflow: hidden; }
@@ -64,8 +67,11 @@
         <select id="detalle"><option value="max">Máximo (teselas de ~10 m)</option><option value="alto">Alto (4 veces más rápido)</option></select></div>
       <div class="fila" style="margin-top:8px"><span>Guardar</span>
         <label><input type="checkbox" value="glb" class="fmt"> GLB</label><label><input type="checkbox" value="fbx" class="fmt"> FBX</label>
-        <label><input type="checkbox" value="obj" class="fmt"> OBJ</label><label><input type="checkbox" value="stl" class="fmt"> STL</label></div>
-      <div class="nota" style="margin-top:6px">Se guarda solo en <b>Descargas › Captar malla</b>, con coordenadas en metros.</div>
+        <label><input type="checkbox" value="obj" class="fmt"> OBJ</label><label title="Sólido cerrado con base, en milímetros a escala, listo para imprimir"><input type="checkbox" value="stl" class="fmt"> STL</label></div>
+      <div class="fila stl" id="filaStl" hidden><span>STL para imprimir:</span>
+        <label>escala 1:<input type="number" id="stlEscala" min="1" step="any" placeholder="auto" class="num"></label>
+        <label>base <input type="number" id="stlBase" min="0.5" step="0.5" value="3" class="num corto"> mm</label></div>
+      <div class="nota" style="margin-top:6px">Al soltar el rectángulo empieza sola. Se guarda en <b>Descargas › Captar malla</b>, con coordenadas en metros. Puedes cambiar de pestaña mientras captura.</div>
       <div class="fila" style="margin-top:8px; justify-content: space-between">
         <button class="enlace" id="bRapida" title="Guarda lo que se ve ahora y abre el visor">Captura rápida de la vista</button>
         <button class="enlace" id="bVisor">Capturas guardadas</button></div>
@@ -77,15 +83,15 @@
     <section id="sConf" hidden>
       <div id="confTxt"></div>
       <ul class="avisos" id="confAvisos"></ul>
-      <div class="fila" style="margin-top:8px"><button class="prim" id="bIr" style="flex:1">Capturar</button></div>
+      <div class="fila" style="margin-top:8px"><button class="prim" id="bIr" style="flex:1">Capturar igualmente</button></div>
       <div class="fila" style="margin-top:6px"><button class="sec" id="bOtra">Marcar de nuevo</button><button class="sec" id="bCancConf">Cancelar</button></div>
-      <div class="nota" style="margin-top:6px">Deja esta pestaña a la vista mientras captura: Chrome pausa las pestañas ocultas. La vista se moverá sola.</div>
     </section>
     <section id="sCorre" hidden><div id="corTxt">Capturando…</div><div class="barra"><i id="corBar"></i></div>
-      <div class="nota" id="corNota">No muevas la vista ni cambies de pestaña hasta que termine.</div>
+      <div class="nota" id="corNota">Puedes cambiar de pestaña o minimizar Chrome: la captura sigue y te avisa al terminar. No cierres esta pestaña.</div>
       <button class="sec" id="bCancCorre">Cancelar</button></section>
     <section id="sFin" hidden><div id="finTxt"></div><ul class="archivos" id="finArch"></ul><ul class="avisos" id="finAvisos"></ul>
-      <div class="fila" style="margin-top:8px"><button class="sec" id="bVer">Ver en 3D</button><button class="sec" id="bCarpeta">Abrir carpeta</button><button class="sec" id="bNueva">Nueva captura</button></div></section>
+      <div class="fila" style="margin-top:8px"><button class="prim" id="bNueva" style="flex:1">▭ Capturar otra área</button></div>
+      <div class="fila" style="margin-top:6px"><button class="sec" id="bVer">Ver en 3D</button><button class="sec" id="bCarpeta">Abrir carpeta</button><button class="sec" id="bInicio">Opciones</button></div></section>
   </div>
 </div>
 <div class="capa" id="capa" hidden><div class="ayuda" id="ayuda"><span id="ayudaTxt">Arrastra para marcar el área</span><button id="bCancAyuda">Cancelar (Esc)</button></div><div class="rect" id="rect" hidden><span class="medida" id="medida"></span></div></div>
@@ -99,21 +105,39 @@
   function show(id) { for (const s of SECS) $(s).hidden = s !== id; $('panel').classList.remove('min'); }
   $('bMin').addEventListener('click', () => $('panel').classList.toggle('min'));
 
-  // opciones guardadas
-  const opts = { detail: 'max', formats: ['glb'] };
+  // opciones guardadas (las del STL las comparte el visor)
+  const opts = { detail: 'max', formats: ['glb'], stl: { scale: 0, base: 3, res: 0.3 } };
+  const showStl = () => { $('filaStl').hidden = !opts.formats.includes('stl'); };
   chrome.storage.local.get('earthOpts', (r) => {
-    Object.assign(opts, (r && r.earthOpts) || {});
+    const s = (r && r.earthOpts) || {};
+    Object.assign(opts, s, { stl: Object.assign({}, opts.stl, s.stl || {}) });
     $('detalle').value = opts.detail;
     for (const cb of root.querySelectorAll('.fmt')) cb.checked = opts.formats.includes(cb.value);
+    $('stlEscala').value = opts.stl.scale > 0 ? opts.stl.scale : ''; $('stlBase').value = opts.stl.base;
+    showStl();
   });
   function saveOpts() {
     opts.detail = $('detalle').value;
     opts.formats = [...root.querySelectorAll('.fmt')].filter((c) => c.checked).map((c) => c.value);
     if (!opts.formats.length) { opts.formats = ['glb']; root.querySelector('.fmt[value=glb]').checked = true; }
+    const num = (v, d) => { const x = parseFloat(String(v).replace(',', '.')); return isFinite(x) && x > 0 ? x : d; };
+    opts.stl = Object.assign({}, opts.stl, { scale: num($('stlEscala').value, 0), base: num($('stlBase').value, 3) });
     chrome.storage.local.set({ earthOpts: opts });
+    showStl();
   }
   $('detalle').addEventListener('change', () => { saveOpts(); if (!$('sConf').hidden) estimate(); });
   for (const cb of root.querySelectorAll('.fmt')) cb.addEventListener('change', saveOpts);
+  for (const id of ['stlEscala', 'stlBase']) $(id).addEventListener('change', saveOpts);
+  // si se cambian las opciones del STL en el visor, el panel las toma (y no las pisa al guardar)
+  chrome.storage.onChanged.addListener((ch, zone) => {
+    const nv = zone === 'local' && ch.earthOpts && ch.earthOpts.newValue;
+    if (!nv || !nv.stl) return;
+    opts.stl = Object.assign({}, opts.stl, nv.stl);
+    if (root.activeElement !== $('stlEscala')) $('stlEscala').value = opts.stl.scale > 0 ? opts.stl.scale : '';
+    if (root.activeElement !== $('stlBase')) $('stlBase').value = opts.stl.base;
+  });
+  // (que las teclas del panel no muevan Google Earth)
+  for (const id of ['stlEscala', 'stlBase']) $(id).addEventListener('keydown', (e) => e.stopPropagation());
 
   // ---------------------------------------------------------------- flujo
   let view = null, canvas = null, area = null;
@@ -169,22 +193,44 @@
     const ce = (a[0] + b[0]) / 2, cn = (a[1] + b[1]) / 2;
     const lat = view.lat + (cn / R) / DEG, lon = view.lon + (ce / (R * Math.cos(view.lat * DEG))) / DEG;
     area = { lat, lon, W, H, a: view.a };
-    capa.hidden = true; // el rectángulo queda dibujado mientras se confirma
+    capa.hidden = true; // el rectángulo queda dibujado mientras empieza (o se confirma)
     rect.hidden = false; capa.hidden = false; capa.style.pointerEvents = 'none'; capa.style.background = 'transparent';
     $('ayuda').hidden = true; $('panel').classList.remove('oculto');
-    confirmArea();
+    drag = null;
+    afterDraw();
   });
+  // Al soltar empieza sola; solo se pide confirmación si el área pasa de los límites
+  async function afterDraw() {
+    saveOpts();
+    const a = area;
+    const p = await send({ cmd: 'earth-estimar', W: a.W, H: a.H, detail: opts.detail });
+    if (area !== a) return; // se canceló (Esc) mientras tanto
+    if (p.n > 80 || p.mb > 800) { confirmArea(); return; }
+    start();
+  }
+  // Estimación mientras se arrastra (posiciones, tiempo y peso), sin saturar de mensajes
+  let estBusy = false, estNext = null;
+  async function liveEstimate(W, H) {
+    if (estBusy) { estNext = [W, H]; return; }
+    estBusy = true;
+    const p = await send({ cmd: 'earth-estimar', W, H, detail: $('detalle').value });
+    estBusy = false;
+    if (drag && p && p.n && !estNext) $('medida').textContent = `${fmtN(W)} × ${fmtN(H)} m · ${p.n} ${p.n > 1 ? 'posiciones' : 'posición'} · unos ${fmtT(p.seconds)} · ~${fmtN(p.mb)} MB${p.n > 80 || p.mb > 800 ? ' · grande: bajará el detalle' : ''}`;
+    if (estNext) { const [w, h] = estNext; estNext = null; liveEstimate(w, h); }
+  }
   function drawRect() {
     const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
     Object.assign(rect.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
     rect.hidden = false;
     const a = px2en(x, y + h), b = px2en(x + w, y);
-    $('medida').textContent = `${fmtN(b[0] - a[0])} × ${fmtN(b[1] - a[1])} m`;
+    const W = b[0] - a[0], H = b[1] - a[1];
+    if (!$('medida').textContent.startsWith(`${fmtN(W)} × ${fmtN(H)} m`)) $('medida').textContent = `${fmtN(W)} × ${fmtN(H)} m`;
+    if (W >= 15 && H >= 15) liveEstimate(W, H);
   }
   function resetCapa() { capa.style.pointerEvents = ''; capa.style.background = ''; $('ayuda').hidden = false; $('panel').classList.remove('oculto'); stopDrawing(); }
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('sMarcar').hidden) { resetCapa(); show('sInicio'); } }, true);
-  $('bCancMarcar').addEventListener('click', () => { resetCapa(); show('sInicio'); });
-  $('bCancAyuda').addEventListener('click', (e) => { e.stopPropagation(); resetCapa(); show('sInicio'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('sMarcar').hidden) { area = null; resetCapa(); show('sInicio'); } }, true);
+  $('bCancMarcar').addEventListener('click', () => { area = null; resetCapa(); show('sInicio'); });
+  $('bCancAyuda').addEventListener('click', (e) => { e.stopPropagation(); area = null; resetCapa(); show('sInicio'); });
 
   async function estimate() {
     saveOpts();
@@ -201,16 +247,19 @@
   }
   async function confirmArea() { show('sConf'); await estimate(); }
   $('bOtra').addEventListener('click', () => { resetCapa(); prepare(); });
-  $('bCancConf').addEventListener('click', () => { resetCapa(); show('sInicio'); });
-  $('bIr').addEventListener('click', async () => {
-    if (!area) return;
+  $('bCancConf').addEventListener('click', () => { area = null; resetCapa(); show('sInicio'); });
+  async function start() {
+    const a = area;
+    if (!a) return;
+    area = null; // (que no pueda arrancar dos veces)
     saveOpts();
     resetCapa();
     show('sCorre'); setRun('Empezando…', 0.01);
     $('bloqueo').hidden = false;
-    const r = await send({ cmd: 'earth-area', area, detail: opts.detail, formats: opts.formats });
+    const r = await send({ cmd: 'earth-area', area: a, detail: opts.detail, formats: opts.formats });
     if (r.error) { $('bloqueo').hidden = true; err(r.error); }
-  });
+  }
+  $('bIr').addEventListener('click', start);
   $('bCancCorre').addEventListener('click', async () => {
     $('corTxt').textContent = 'Cancelando…';
     await send({ cmd: 'earth-cancelar' });
@@ -221,7 +270,8 @@
     if (text) $('corTxt').textContent = text;
     if (frac !== undefined && frac !== null) $('corBar').style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
   }
-  $('bNueva').addEventListener('click', () => show('sInicio'));
+  $('bNueva').addEventListener('click', () => { saveOpts(); prepare(); });
+  $('bInicio').addEventListener('click', () => show('sInicio'));
   let lastResult = null;
   $('bVer').addEventListener('click', () => send({ cmd: 'earth-ver', viewerTab: lastResult && lastResult.viewerTab }));
   $('bCarpeta').addEventListener('click', () => send({ cmd: 'earth-carpeta', downloadId: lastResult && lastResult.files && lastResult.files[0] && lastResult.files[0].id }));
@@ -236,7 +286,7 @@
     const d = document.createElement('div'); d.className = 'ok'; d.textContent = 'Guardado en Descargas › Captar malla:'; $('finTxt').append(d);
     if (r.info) { const n = document.createElement('div'); n.className = 'nota'; n.textContent = r.info; $('finTxt').append(n); }
     $('finArch').innerHTML = '';
-    for (const f of r.files || []) { const li = document.createElement('li'); li.textContent = `${f.name} (${fmtMB(f.bytes)})`; $('finArch').append(li); }
+    for (const f of r.files || []) { const li = document.createElement('li'); li.textContent = `${f.name} (${fmtMB(f.bytes)})${f.note ? ' · ' + f.note : ''}`; $('finArch').append(li); }
     $('finAvisos').innerHTML = '';
     for (const w of r.warnings || []) { const li = document.createElement('li'); li.textContent = w; $('finAvisos').append(li); }
   }

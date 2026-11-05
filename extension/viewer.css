@@ -37,6 +37,7 @@ button.fmt span { font-size: 11px; opacity: .9; }
 .cuenta { font-weight: 600; }
 .estado { min-height: 1.4em; font-weight: 600; margin: 6px 0 0; }
 .estado.ok { color: var(--ok); } .estado.mal { color: var(--mal); }
+h3.subt { font-size: 12.5px; margin: 12px 0 2px; }
 details.opciones summary { cursor: pointer; color: var(--acento); margin: 4px 0; }
 .lista .cap { border: 1px solid var(--borde); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
 .lista .cap.actual { border-color: var(--acento); background: #f0f6f8; }

@@ -40,9 +40,33 @@ function log(...a) {
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
+  // retransmisión que mantiene a Earth dibujando en segundo plano (lib/earth.js): confirmar cada fotograma
+  if (method === 'Page.screencastFrame') { chrome.debugger.sendCommand({ tabId: source.tabId }, 'Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => { }); return; }
   const t = tabs.get(source.tabId);
   if (t) t.inj.onEvent(source.sessionId || '', method, params).catch(() => { });
 });
+
+// Aviso de Windows al terminar, si la pestaña de Earth no está a la vista (la captura sigue en segundo plano)
+const notes = new Map(); // id del aviso -> { downloadId, tabId }
+async function earthHidden(tabId) {
+  try { const tab = await chrome.tabs.get(tabId); const win = await chrome.windows.get(tab.windowId); return !(tab.active && win.focused && win.state !== 'minimized'); }
+  catch (e) { return true; }
+}
+async function notify(tabId, title, message, downloadId) {
+  if (!chrome.notifications || !(await earthHidden(tabId))) return;
+  try {
+    const id = await chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title, message, priority: 1 });
+    notes.set(id, { downloadId, tabId });
+  } catch (e) { }
+}
+if (chrome.notifications) {
+  chrome.notifications.onClicked.addListener(async (id) => {
+    const n = notes.get(id); notes.delete(id); chrome.notifications.clear(id).catch(() => { });
+    if (n && n.downloadId) { try { chrome.downloads.show(n.downloadId); return; } catch (e) { } }
+    if (n && n.tabId) { try { const tab = await chrome.tabs.update(n.tabId, { active: true }); await chrome.windows.update(tab.windowId, { focused: true }); } catch (e) { } }
+  });
+  chrome.notifications.onClosed.addListener((id) => notes.delete(id));
+}
 chrome.debugger.onDetach.addListener((source, reason) => {
   const t = tabs.get(source.tabId);
   if (!t) return;
@@ -184,7 +208,18 @@ async function captureArea(tabId, req) {
   try {
     const a = req.area;
     log('área', { W: a.W, H: a.H, lat: a.lat, lon: a.lon, detalle: req.detail });
-    const res = await job.runArea(a, { detail: req.detail || 'max' });
+    const overview = t.overview; t.overview = null; // alturas de la vista cenital donde se marcó
+    const knownTile = await zoneTile(a.lat, a.lon);
+    const res = await job.runArea(a, { detail: req.detail || 'max', overview, knownTile });
+    // recordar el detalle máximo de la zona (o olvidarlo si las posiciones salieron con menos detalle)
+    if (res.finest > 0) await zoneTile(a.lat, a.lon, res.finest);
+    else if (knownTile > 0) {
+      // las posiciones salieron con otro detalle que el planificado (res.area.tile, que ya incluye
+      // «Alto» y los límites de tamaño): la memoria de la zona no vale, la próxima vez se mide
+      const got = res.area.cells.map((c) => c.tile).filter((x) => x > 0).sort((x, y) => x - y);
+      const med = got.length ? got[Math.floor(got.length / 2)] : 0;
+      if (med && (med > res.area.tile * 1.5 || med < res.area.tile / 1.5)) await zoneTile(a.lat, a.lon, 0);
+    }
     log('área capturada', { s: res.seconds, bytes: res.bytes && res.bytes.length, celdas: res.area.cells.length, faltan: res.area.missing, tesela: res.area.tile, avisos: res.warnings });
     if (!res.bytes) throw new Error('La captura salió vacía.');
     if (job.cancelled) throw Object.assign(new Error('Captura cancelada.'), { cancelled: true });
@@ -206,11 +241,25 @@ async function captureArea(tabId, req) {
     log('error área', msg);
     toPanel(tabId, { type: 'earth-fin', ok: false, cancelled: !!(e && e.cancelled), error: msg });
     progress(tabId, (e && e.cancelled ? '' : 'Error: ') + msg, { done: true, ok: false });
+    if (!(e && e.cancelled)) notify(tabId, 'Captar malla: la captura no ha terminado', msg);
     return { ok: false, error: msg };
   } finally {
     t.capturing = false; t.job = null;
     if (tabs.has(tabId)) badge(tabId, 'ON', '#2f6f4f');
   }
+}
+// Detalle máximo (tesela más fina) ya medido en una zona de unos 2 km, durante 30 días: así la
+// siguiente captura cerca se salta la sonda. tile = 0 lo olvida; sin tile, lo lee (0 si no hay).
+async function zoneTile(lat, lon, tile) {
+  const key = `${(Math.round(lat * 50) / 50).toFixed(2)},${(Math.round(lon * 50) / 50).toFixed(2)}`;
+  try {
+    const r = await chrome.storage.local.get('zonas');
+    const z = (r && r.zonas) || {};
+    if (tile === undefined) { const e = z[key]; return e && Date.now() - e.t < 30 * 86400000 ? e.tile : 0; }
+    if (tile > 0) z[key] = { tile, t: Date.now() }; else delete z[key];
+    await chrome.storage.local.set({ zonas: z });
+  } catch (e) { }
+  return 0;
 }
 function areaName(a, area) {
   const d = new Date();
@@ -249,8 +298,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (t.capturing) return { error: 'Ya hay una captura en marcha.' };
         await earthReady(t);
         const job = newJob(tabId, t);
-        await job.waitIdle({ quietMs: 1200, minMs: 300, maxMs: 20000 });
-        return await job.topDown();
+        let r;
+        try {
+          await job.waitIdle({ minMs: 300, maxMs: 20000 });
+          r = await job.topDown();
+        } finally { try { await t.inj.netWatch(false); } catch (e) { } }
+        // las alturas de lo que se ve se quedan aquí para la captura (no se mandan al panel)
+        t.overview = r.overview || null; delete r.overview;
+        return r;
       }
       case 'earth-estimar': return planArea({ W: msg.W, H: msg.H, tile: 9.9, detail: msg.detail });
       case 'earth-area': {
@@ -285,6 +340,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const result = { ok: !msg.error, files: msg.files || [], error: msg.error || '', warnings: msg.warnings || [], viewerTab: sender.tab && sender.tab.id, info: msg.info || null };
         if (t) { t.result = result; t.progress = ''; t.awaitingFiles = false; }
         if (et) toPanel(et, Object.assign({ type: 'earth-fin' }, result));
+        if (et) {
+          if (result.ok) notify(et, 'Captar malla: captura terminada', `Guardado en Descargas › Captar malla: ${result.files.map((f) => f.name).join(', ')}`, result.files[0] && result.files[0].id);
+          else notify(et, 'Captar malla: no se pudieron guardar los archivos', result.error);
+        }
         return { ok: true };
       }
       default: return { error: 'orden desconocida' };

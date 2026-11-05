@@ -17,7 +17,10 @@ Preparar (una vez): abrir una consola en esta carpeta y ejecutar `npm install`.
 | `probe2.mjs` | Sonda para estudiar una web nueva: qué contextos WebGL usa, en qué worker y con qué shaders | `node probe2.mjs <url> nombre` |
 | `make_icons.mjs` | Regenera los iconos de la extensión | `node make_icons.mjs` |
 | **Versión 2 (Google Earth, áreas)** | | |
-| `e2e_area.mjs` | Flujo completo con la extensión, como un usuario: panel → **Capturar área** → arrastrar rectángulo → **Capturar** → archivos en `out/<nombre>/Captar malla` | `node e2e_area.mjs e2e_area 300 200 1100 650 glb,fbx max` |
+| `e2e_area.mjs` | Flujo completo con la extensión, como un usuario: panel → **Capturar área** → arrastrar rectángulo → al soltar empieza → archivos en `out/<nombre>` (con nombres de Chrome). `OCULTA=1`: cambia a otra pestaña nada más empezar. `DOS=1`: al terminar, «Capturar otra área» y repite | `node e2e_area.mjs e2e_area 300 200 1100 650 glb,stl max` |
+| `capturas_readme.mjs` | Rehace las capturas de pantalla del README (panel, rectángulo, capturando, terminado, visor) sobre la Plaza Mayor, y guarda el GLB y el STL para renderizarlos con `blender_render.py` y `blender_stl_check.py`. Cierra solo el aviso «Novedades» de Earth si aparece | `node capturas_readme.mjs out/readme` |
+| `stl_test.mjs` | STL para imprimir de un área: sólido cerrado (aristas, degenerados, volumen), base, tamaño en mm y peso | `node stl_test.mjs out/area/madrid [escala] [base_mm] [rejilla_mm]` |
+| `blender_stl_check.py` | Abre el STL en Blender sin ventana: aristas abiertas o no manifold, normales, volumen e imágenes | `blender -b --factory-startup -P blender_stl_check.py -- <stl> <prefijo_absoluto>` |
 | `area_test.mjs` | Recorrido de un área con `lib/earth.js` por CDP, sin la interfaz; guarda `.cmal` y `.json` y mide la cobertura | `node area_test.mjs 40.4153 -3.7074 300 200 max madrid` |
 | `check_area.mjs` | Encaje entre posiciones (misma tesela vista desde dos sitios), atlas y GLB, como el visor | `node check_area.mjs out/area/madrid` |
 | `blender_render.py` | Abre un GLB en Blender sin ventana y saca planta, perspectiva y detalle en PNG | `blender -b --factory-startup -P blender_render.py -- <glb> <prefijo_absoluto> 1600` |

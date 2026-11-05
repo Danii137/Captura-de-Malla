@@ -85,6 +85,12 @@
   let totalDraws = 0;
   let lastDrawTime = 0;
   let lastActivity = 0;              // último dibujo de la página (para saber cuándo ha terminado de cargar)
+  // Dibujos del globo de Google Earth (programas de las teselas 3D). Sirve para saber cuándo ha
+  // terminado de cargar sin contar la interfaz: un aviso animado de Earth («Novedades») hacía que la
+  // página no dejara nunca de dibujar.
+  const GLOBE_MARK = 'uMeshToWorldMatrix';
+  const globeProg = new WeakSet();   // programas que dibujan teselas
+  let globeDraws = 0;
 
   function boundBuffer(gl, target) {
     const b = BINDING_OF[target];
@@ -153,7 +159,12 @@
         progSrc.set(p, { vs: srcs.find((s) => /gl_Position/.test(s)) || '', fs: srcs.find((s) => !/gl_Position/.test(s)) || '' });
         progMeta.delete(p);
         blockBindingOverride.delete(p);
+        if (srcs.some((s) => s.includes(GLOBE_MARK))) globeProg.add(p); else globeProg.delete(p);
       });
+      return orig.apply(this, arguments);
+    });
+    wrap(proto, 'useProgram', (orig) => function (p) {
+      const c = ctxInfo.get(this); if (c) c.globe = !!(p && globeProg.has(p));
       return orig.apply(this, arguments);
     });
     wrap(proto, 'getUniformLocation', (orig) => function (p, name) {
@@ -344,6 +355,7 @@
       wrap(proto, name, (orig) => function () {
         totalDraws++;
         lastActivity = performance.now();
+        { const c = ctxInfo.get(this); if (c && c.globe) globeDraws++; }
         if (cap) { const a = arguments; const gl = this; safe(() => onDraw(gl, parse(a))); }
         return orig.apply(this, arguments);
       });
@@ -365,33 +377,33 @@
     if (n === 'ANGLE_INSTANCED_ARRAYS') {
       C(gl).angle = true;
       wrap(ext, 'drawArraysInstancedANGLE', (orig) => function (mode, first, count, prim) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => onDraw(gl, { mode, first, count, inst: prim }));
         return orig.apply(this, arguments);
       });
       wrap(ext, 'drawElementsInstancedANGLE', (orig) => function (mode, count, type, offset, prim) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => onDraw(gl, { mode, count, type, offset, inst: prim }));
         return orig.apply(this, arguments);
       });
     } else if (n === 'WEBGL_MULTI_DRAW') {
       wrap(ext, 'multiDrawArraysWEBGL', (orig) => function (mode, firsts, fo, counts, co, dc) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => { for (let i = 0; i < dc && cap && !cap.truncated; i++) onDraw(gl, { mode, first: firsts[fo + i], count: counts[co + i], inst: 0, multi: i }); });
         return orig.apply(this, arguments);
       });
       wrap(ext, 'multiDrawElementsWEBGL', (orig) => function (mode, counts, co, type, offsets, oo, dc) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => { for (let i = 0; i < dc && cap && !cap.truncated; i++) onDraw(gl, { mode, count: counts[co + i], type, offset: offsets[oo + i], inst: 0, multi: i }); });
         return orig.apply(this, arguments);
       });
       wrap(ext, 'multiDrawArraysInstancedWEBGL', (orig) => function (mode, firsts, fo, counts, co, ics, io, dc) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => { for (let i = 0; i < dc && cap && !cap.truncated; i++) onDraw(gl, { mode, first: firsts[fo + i], count: counts[co + i], inst: ics[io + i], multi: i }); });
         return orig.apply(this, arguments);
       });
       wrap(ext, 'multiDrawElementsInstancedWEBGL', (orig) => function (mode, counts, co, type, offsets, oo, ics, io, dc) {
-        totalDraws++; lastActivity = performance.now();
+        totalDraws++; lastActivity = performance.now(); { const c = ctxInfo.get(gl); if (c && c.globe) globeDraws++; }
         if (cap) safe(() => { for (let i = 0; i < dc && cap && !cap.truncated; i++) onDraw(gl, { mode, count: counts[co + i], type, offset: offsets[oo + i], inst: ics[io + i], multi: i }); });
         return orig.apply(this, arguments);
       });
@@ -1095,7 +1107,7 @@
     }
     const now = performance.now();
     return {
-      version: VERSION, realm: REALM, url: String(G.location && G.location.href || ''), contexts, totalDraws, capturing: !!cap,
+      version: VERSION, realm: REALM, url: String(G.location && G.location.href || ''), contexts, totalDraws, globeDraws, capturing: !!cap,
       idleMs: lastActivity ? Math.round(now - lastActivity) : -1,
       visible: typeof document !== 'undefined' ? document.visibilityState : 'visible',
       session: cap && cap.opts.manual ? { snaps: cap.snaps.length, bins: cap.bins.length, draws: cap.draws.length, textures: cap.texDone.size } : null,

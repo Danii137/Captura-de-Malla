@@ -471,6 +471,146 @@ export function exportSTL(meshes, opts = {}) {
   return out;
 }
 
+// ------------------------------------------------------------------ sólido para imprimir (STL)
+// La malla de Google Earth es una «sopa» de teselas abiertas: no sirve tal cual para imprimir.
+// Aquí se convierte en un sólido cerrado y sin agujeros:
+//  - relieve en una rejilla regular: en cada nudo, la altura más alta de la malla (como vista desde
+//    arriba; los soportales y aleros quedan macizos hasta el suelo);
+//  - los nudos sin malla se rellenan con la media de sus vecinos;
+//  - paredes verticales en el borde del rectángulo y una base plana por debajo del punto más bajo.
+// Cada arista la comparten exactamente dos triángulos con orientación opuesta (malla cerrada y orientable).
+// meshes: Z arriba, en metros. rect: { x0, y0, x1, y1 } en las mismas coordenadas.
+// cell: lado de la rejilla (m). baseThick: grosor de la base bajo el punto más bajo (m).
+// outScale: factor de salida (p. ej. 1000/2000 para milímetros a escala 1:2000). La salida empieza en (0, 0, 0).
+export function printSolid(meshes, { rect, cell = 0.5, baseThick = 3, outScale = 1, maxNodes = 1.6e6 } = {}) {
+  const { x0, y0, x1, y1 } = rect;
+  const W = x1 - x0, H = y1 - y0;
+  if (!(W > 0 && H > 0)) throw new Error('La zona para imprimir está vacía.');
+  let c = Math.max(1e-3, cell);
+  if ((W / c + 1) * (H / c + 1) > maxNodes) c = Math.sqrt((W * H) / maxNodes) * 1.02;
+  const nx = Math.max(1, Math.round(W / c)), ny = Math.max(1, Math.round(H / c));
+  const cx = W / nx, cy = H / ny, NX = nx + 1, NY = ny + 1, N = NX * NY;
+  const Z = new Float32Array(N).fill(-Infinity);
+  // 1) altura más alta en cada nudo (rasterizado de los triángulos vistos desde arriba)
+  for (const m of meshes) {
+    const p = m.positions, I = m.indices;
+    if (!p || !I || !I.length) continue;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t] * 3, b = I[t + 1] * 3, d = I[t + 2] * 3;
+      const ax = p[a], ay = p[a + 1], bx = p[b], by = p[b + 1], dx = p[d], dy = p[d + 1];
+      let i0 = Math.ceil((Math.min(ax, bx, dx) - x0) / cx), i1 = Math.floor((Math.max(ax, bx, dx) - x0) / cx);
+      let j0 = Math.ceil((Math.min(ay, by, dy) - y0) / cy), j1 = Math.floor((Math.max(ay, by, dy) - y0) / cy);
+      if (i1 < 0 || j1 < 0 || i0 > nx || j0 > ny || i0 > i1 || j0 > j1) continue;
+      const den = (by - dy) * (ax - dx) + (dx - bx) * (ay - dy);
+      if (Math.abs(den) < 1e-12) continue; // triángulo vertical (fachada): no tapa ningún nudo
+      if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (i1 > nx) i1 = nx; if (j1 > ny) j1 = ny;
+      const az = p[a + 2], bz = p[b + 2], dz = p[d + 2];
+      for (let j = j0; j <= j1; j++) {
+        const y = y0 + j * cy;
+        for (let i = i0; i <= i1; i++) {
+          const x = x0 + i * cx;
+          const l1 = ((by - dy) * (x - dx) + (dx - bx) * (y - dy)) / den;
+          const l2 = ((dy - ay) * (x - dx) + (ax - dx) * (y - dy)) / den;
+          const l3 = 1 - l1 - l2;
+          if (l1 < -1e-7 || l2 < -1e-7 || l3 < -1e-7) continue;
+          const z = l1 * az + l2 * bz + l3 * dz;
+          const k = j * NX + i;
+          if (z > Z[k]) Z[k] = z;
+        }
+      }
+    }
+  }
+  // 2) nudos sin malla: se rellenan por capas desde el borde de cada hueco, con la media de los vecinos
+  const done = new Uint8Array(N);
+  let known = 0;
+  for (let k = 0; k < N; k++) if (Z[k] > -Infinity) { done[k] = 1; known++; }
+  if (!known) throw new Error('No hay malla dentro de la zona para imprimir.');
+  const nbrs = (k, f) => { const i = k % NX, j = (k - i) / NX; if (i > 0) f(k - 1); if (i < nx) f(k + 1); if (j > 0) f(k - NX); if (j < ny) f(k + NX); };
+  const queued = new Uint8Array(N);
+  let cur = [];
+  for (let k = 0; k < N; k++) if (!done[k]) { let any = false; nbrs(k, (q) => { if (done[q]) any = true; }); if (any) { cur.push(k); queued[k] = 1; } }
+  while (cur.length) {
+    const vals = new Float32Array(cur.length);
+    for (let q = 0; q < cur.length; q++) { let s = 0, n = 0; nbrs(cur[q], (r) => { if (done[r]) { s += Z[r]; n++; } }); vals[q] = s / n; }
+    for (let q = 0; q < cur.length; q++) { Z[cur[q]] = vals[q]; done[cur[q]] = 1; }
+    const next = [];
+    for (const k of cur) nbrs(k, (r) => { if (!done[r] && !queued[r]) { queued[r] = 1; next.push(r); } });
+    cur = next;
+  }
+  let zmin = Infinity, zmax = -Infinity;
+  for (let k = 0; k < N; k++) { if (Z[k] < zmin) zmin = Z[k]; if (Z[k] > zmax) zmax = Z[k]; }
+  const zb = zmin - Math.max(0, baseThick);
+  // 3) malla: relieve + paredes del borde + base (abanico desde el centro de la base)
+  const L = 2 * (nx + ny);
+  const nV = N + L + 1;
+  const pos = new Float32Array(nV * 3);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const k = j * NX + i;
+    pos[k * 3] = i * cx * outScale; pos[k * 3 + 1] = j * cy * outScale; pos[k * 3 + 2] = (Z[k] - zb) * outScale;
+  }
+  // borde en sentido antihorario visto desde arriba
+  const loop = new Int32Array(L);
+  let q = 0;
+  for (let i = 0; i < nx; i++) loop[q++] = i;                     // sur, hacia el este
+  for (let j = 0; j < ny; j++) loop[q++] = j * NX + nx;           // este, hacia el norte
+  for (let i = nx; i > 0; i--) loop[q++] = ny * NX + i;           // norte, hacia el oeste
+  for (let j = ny; j > 0; j--) loop[q++] = j * NX;                // oeste, hacia el sur
+  for (let r = 0; r < L; r++) { const k = loop[r], v = N + r; pos[v * 3] = pos[k * 3]; pos[v * 3 + 1] = pos[k * 3 + 1]; pos[v * 3 + 2] = 0; }
+  const vc = N + L;
+  pos[vc * 3] = W / 2 * outScale; pos[vc * 3 + 1] = H / 2 * outScale; pos[vc * 3 + 2] = 0;
+  const idx = new Uint32Array((2 * nx * ny + 3 * L) * 3);
+  let o = 0;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const a = j * NX + i, b = a + 1, cc = a + NX + 1, d = a + NX;
+    // diagonal entre los nudos de altura más parecida (bordes de edificio más limpios)
+    if (Math.abs(Z[a] - Z[cc]) <= Math.abs(Z[b] - Z[d])) { idx[o++] = a; idx[o++] = b; idx[o++] = cc; idx[o++] = a; idx[o++] = cc; idx[o++] = d; }
+    else { idx[o++] = a; idx[o++] = b; idx[o++] = d; idx[o++] = b; idx[o++] = cc; idx[o++] = d; }
+  }
+  for (let r = 0; r < L; r++) {
+    const r2 = (r + 1) % L, Tp = loop[r], Tq = loop[r2], Bp = N + r, Bq = N + r2;
+    idx[o++] = Bp; idx[o++] = Bq; idx[o++] = Tq;   // pared (normal hacia fuera)
+    idx[o++] = Bp; idx[o++] = Tq; idx[o++] = Tp;
+    idx[o++] = vc; idx[o++] = Bq; idx[o++] = Bp;   // base (normal hacia abajo)
+  }
+  return {
+    positions: pos, indices: idx, nx, ny, cell: [cx, cy], zmin, zmax, base: zb,
+    filled: 1 - known / N, size: [W * outScale, H * outScale, (zmax - zb) * outScale],
+  };
+}
+// Escalas habituales de maqueta; la automática es la primera con la que el lado mayor cabe en maxMM.
+export const PRINT_SCALES = [100, 200, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000];
+export function autoPrintScale(W, H, maxMM = 200) { const s = Math.max(W, H) * 1000 / maxMM; return PRINT_SCALES.find((n) => n >= s) || Math.ceil(s); }
+// STL listo para imprimir: sólido cerrado, en milímetros a escala 1:scale, con base de baseMM bajo el
+// punto más bajo y rejilla de resMM en la pieza impresa (no menos de minCell metros reales).
+export function exportPrintSTL(meshes, rect, { scale = 0, baseMM = 3, resMM = 0.3, minCell = 0.15, comment = '' } = {}) {
+  const W = rect.x1 - rect.x0, H = rect.y1 - rect.y0;
+  const N = scale > 0 ? scale : autoPrintScale(W, H);
+  const cell = Math.max(minCell, resMM * N / 1000);
+  const s = printSolid(meshes, { rect, cell, baseThick: baseMM * N / 1000, outScale: 1000 / N });
+  const bytes = exportSTL([s], { comment: `1:${N} mm ${comment}`.slice(0, 58) });
+  return { bytes, scale: N, cellReal: s.cell[0], size: s.size, triangles: s.indices.length / 3, filled: s.filled, zmin: s.zmin, zmax: s.zmax, solid: s };
+}
+// Comprobación de malla cerrada: cada arista en exactamente dos triángulos, con sentidos opuestos.
+export function checkClosed(positions, indices) {
+  const E = new Map();
+  let bad = 0, degenerate = 0, vol = 0;
+  const p = positions;
+  for (let t = 0; t < indices.length; t += 3) {
+    const v = [indices[t], indices[t + 1], indices[t + 2]];
+    if (v[0] === v[1] || v[1] === v[2] || v[0] === v[2]) degenerate++;
+    for (let e = 0; e < 3; e++) {
+      const a = v[e], b = v[(e + 1) % 3];
+      const key = a < b ? a * 4294967296 + b : b * 4294967296 + a;
+      const s = E.get(key) || 0;
+      E.set(key, s + (a < b ? 1 : 1000));
+    }
+    const [a, b, c] = v.map((k) => [p[k * 3], p[k * 3 + 1], p[k * 3 + 2]]);
+    vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6;
+  }
+  for (const s of E.values()) if (s !== 1001) bad++;
+  return { edges: E.size, badEdges: bad, degenerate, volume: vol, closed: bad === 0 && degenerate === 0 && vol > 0 };
+}
+
 // ------------------------------------------------------------------ FBX binario 7.4 (texturas incrustadas)
 // Estructura mínima compatible con Blender, 3ds Max, Maya, SketchUp, Unity y el SDK de Autodesk.
 class FbxNode {

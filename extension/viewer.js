@@ -293,7 +293,7 @@ function renderSummary() {
   if (S.area) {
     const a = document.createElement('div');
     const A = S.area;
-    a.innerHTML = `<b>Área ${fmtN(A.W)} × ${fmtN(A.H)} m</b> · ${A.cells.length} posiciones de cámara · teselas de ${A.tile.toLocaleString('es-ES', { maximumFractionDigits: 1 })} m` +
+    a.innerHTML = `<b>Área ${fmtN(A.W)} × ${fmtN(A.H)} m</b> · ${A.cells.length} ${A.cells.length === 1 ? 'posición' : 'posiciones'} de cámara · teselas de ${A.tile.toLocaleString('es-ES', { maximumFractionDigits: 1 })} m` +
       (S.atlasInfo ? ` · ${S.atlasInfo.atlases} atlas de texturas` : '') + (S.meta.seconds ? ` · ${fmtN(S.meta.seconds)} s` : '');
     $('resumen').append(a);
   }
@@ -316,6 +316,8 @@ function renderSummary() {
   $('escalaTxt').textContent = info.geo ? '(1 = metros; 1000 = milímetros)' : '(las unidades son las del visor original)';
   $('filaOriginal').hidden = !!info.geo;
   $('filaSuelo').hidden = !info.geo;
+  $('filaImprimir').hidden = !info.geo;
+  if (info.geo) $('stlDesc').textContent = 'Sólido cerrado con base, en mm a escala. Para imprimir';
 }
 async function renderList() {
   const box = $('lista');
@@ -370,12 +372,64 @@ async function download(bytes, name, mime) {
     return { id: null, path: name };
   } finally { setTimeout(() => URL.revokeObjectURL(url), 120000); }
 }
+// ---- STL para imprimir (capturas de Google Earth): sólido cerrado con base, en mm a escala
+const STL_DEF = { scale: 0, base: 3, res: 0.3 };
+function readPrintOpts() {
+  const num = (id, d) => { const v = parseFloat(String($(id).value).replace(',', '.')); return isFinite(v) && v > 0 ? v : d; };
+  return { scale: num('stlEscala', 0), base: num('stlBase', STL_DEF.base), res: num('stlRes', STL_DEF.res) };
+}
+// Las opciones se guardan junto a las del panel de Earth (las usa también el guardado automático)
+async function loadPrintOpts() {
+  try {
+    const r = await chrome.storage.local.get('earthOpts');
+    const s = Object.assign({}, STL_DEF, (r && r.earthOpts && r.earthOpts.stl) || {});
+    $('stlEscala').value = s.scale > 0 ? s.scale : ''; $('stlBase').value = s.base; $('stlRes').value = s.res;
+  } catch (e) { }
+}
+async function savePrintOpts() {
+  try { const r = await chrome.storage.local.get('earthOpts'); const o = (r && r.earthOpts) || {}; o.stl = readPrintOpts(); await chrome.storage.local.set({ earthOpts: o }); } catch (e) { }
+}
+for (const id of ['stlEscala', 'stlBase', 'stlRes']) $(id).addEventListener('change', savePrintOpts);
+// Zona para imprimir: el rectángulo del área; en una vista, el cuadrado del recorte; si no, todo lo visible
+function printRect(meshes) {
+  const o = S.scene.info.origin || [0, 0, 0];
+  if (S.area && S.area.rect) { const r = S.area.rect; return { x0: r.e0 - o[0], y0: r.n0 - o[1], x1: r.e1 - o[0], y1: r.n1 - o[1] }; }
+  if (S.crop.on) { const [cx, cy] = S.crop.center, r = S.crop.radius; return { x0: cx - r, y0: cy - r, x1: cx + r, y1: cy + r }; }
+  const b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const m of meshes) { const p = m.positions; for (let i = 0; i < p.length; i += 3) { if (p[i] < b[0]) b[0] = p[i]; if (p[i] > b[2]) b[2] = p[i]; if (p[i + 1] < b[1]) b[1] = p[i + 1]; if (p[i + 1] > b[3]) b[3] = p[i + 1]; } }
+  return { x0: b[0], y0: b[1], x1: b[2], y1: b[3] };
+}
+function printSTL(base) {
+  const list = S.scene.meshes.filter((m) => isVisible(m) && m.indices.length);
+  if (!list.length) throw new Error('No hay nada visible que exportar.');
+  const listZ = S.up === 'Z' ? list : X.transformPositions(list, { from: S.up, to: 'Z' });
+  const o = readPrintOpts();
+  const g = S.scene.info.geo;
+  const r = X.exportPrintSTL(listZ, printRect(listZ), { scale: o.scale, baseMM: o.base, resMM: o.res, comment: g ? `${g.lat.toFixed(5)},${g.lon.toFixed(5)}` : '' });
+  const mm = (x) => x.toLocaleString('es-ES', { maximumFractionDigits: 0 });
+  r.name = `${base}_imprimir_1-${r.scale}.stl`;
+  r.note = `${mm(r.size[0])} × ${mm(r.size[1])} × ${mm(r.size[2])} mm a escala 1:${r.scale.toLocaleString('es-ES')}, base de ${o.base.toLocaleString('es-ES')} mm`;
+  return r;
+}
+
+// Nombre con que quedó el archivo (Chrome añade « (1)» si ya existía uno igual)
+function savedName(saved, name) {
+  const b = String(saved && saved.path || '').split(/[\\/]/).pop();
+  return b && !/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(b) ? b : name; // (en las pruebas, Chrome guarda con nombres internos)
+}
 async function doExport(fmt, { auto = false } = {}) {
   const st = $('estadoExport');
   st.className = 'estado'; st.textContent = 'Preparando ' + fmt.toUpperCase() + '…';
   for (const b of document.querySelectorAll('button.fmt')) b.disabled = true;
   await new Promise((r) => setTimeout(r, 30));
   try {
+    if (fmt === 'stl' && S.scene.info.geo) {
+      const base = ($('nombre').value || 'captura').replace(/[\\/:*?"<>|]+/g, '_');
+      const pr = printSTL(base);
+      const saved = await download(pr.bytes, pr.name, 'model/stl');
+      st.className = 'estado ok'; st.textContent = `Guardado ${savedName(saved, pr.name)} (${fmtMB(pr.bytes.length)}) en Descargas › Captar malla. Sólido cerrado de ${pr.note}.`;
+      return { ok: true, name: savedName(saved, pr.name), bytes: pr.bytes.length, id: saved.id, path: saved.path, note: pr.note };
+    }
     let list = exportList();
     if (!list.length) throw new Error('No hay nada visible que exportar.');
     if ($('unir').checked) list = X.mergeByMaterial(list);
@@ -410,8 +464,8 @@ async function doExport(fmt, { auto = false } = {}) {
       name = base + '.stl'; mime = 'model/stl';
     }
     const saved = await download(bytes, name, mime);
-    st.className = 'estado ok'; st.textContent = `Guardado ${name} (${fmtMB(bytes.length)}) en Descargas › Captar malla.`;
-    return { ok: true, name, bytes: bytes.length, id: saved.id, path: saved.path };
+    st.className = 'estado ok'; st.textContent = `Guardado ${savedName(saved, name)} (${fmtMB(bytes.length)}) en Descargas › Captar malla.`;
+    return { ok: true, name: savedName(saved, name), bytes: bytes.length, id: saved.id, path: saved.path };
   } catch (e) {
     console.error(e);
     st.className = 'estado mal'; st.textContent = 'Error: ' + (e.message || e);
@@ -550,22 +604,23 @@ async function autoExport() {
     if (r) files.push(r);
   }
   const ok = files.filter((f) => f.ok);
-  const info = S.area ? `${fmtN(S.area.W)} × ${fmtN(S.area.H)} m · ${S.area.cells.length} posiciones · teselas de ${S.area.tile.toLocaleString('es-ES', { maximumFractionDigits: 1 })} m · ${fmtN(S.scene.meshes.reduce((a, m) => a + m.nTris, 0))} triángulos` : '';
+  const info = S.area ? `${fmtN(S.area.W)} × ${fmtN(S.area.H)} m · ${S.area.cells.length} ${S.area.cells.length === 1 ? 'posición' : 'posiciones'} · teselas de ${S.area.tile.toLocaleString('es-ES', { maximumFractionDigits: 1 })} m · ${fmtN(S.scene.meshes.reduce((a, m) => a + m.nTris, 0))} triángulos` : '';
   const warnings = [...(S.meta.warnings || []), ...files.filter((f) => !f.ok).map((f) => `${f.name}: ${f.error}`)];
   // panel del visor
   $('secAuto').hidden = false;
   $('autoTxt').textContent = ok.length ? 'En Descargas › Captar malla:' : 'No se pudo guardar ningún archivo.';
   $('autoArch').innerHTML = '';
-  for (const f of files) { const li = document.createElement('li'); li.textContent = f.ok ? `${f.name} (${fmtMB(f.bytes)})` : `${f.name}: ${f.error}`; if (!f.ok) li.className = 'mal'; $('autoArch').append(li); }
+  for (const f of files) { const li = document.createElement('li'); li.textContent = f.ok ? `${f.name} (${fmtMB(f.bytes)})${f.note ? ' · ' + f.note : ''}` : `${f.name}: ${f.error}`; if (!f.ok) li.className = 'mal'; $('autoArch').append(li); }
   $('autoCarpeta').onclick = () => { if (ok[0] && ok[0].id) chrome.downloads.show(ok[0].id); else chrome.downloads.showDefaultFolder(); };
-  if (earthTab) chrome.runtime.sendMessage({ cmd: 'auto-hecho', earthTab, files: ok.map((f) => ({ name: f.name, bytes: f.bytes, id: f.id, path: f.path })), warnings, info, error: ok.length ? '' : (files[0] && files[0].error) || 'No se pudo guardar.' }).catch(() => { });
+  if (earthTab) chrome.runtime.sendMessage({ cmd: 'auto-hecho', earthTab, files: ok.map((f) => ({ name: f.name, bytes: f.bytes, id: f.id, path: f.path, note: f.note || '' })), warnings, info, error: ok.length ? '' : (files[0] && files[0].error) || 'No se pudo guardar.' }).catch(() => { });
   return files;
 }
 
 resize();
 renderList();
+const printOptsReady = loadPrintOpts();
 const qid = params.get('id');
-if (qid) open(qid).then(() => autoExport()).catch((e) => {
+if (qid) open(qid).then(() => printOptsReady).then(() => autoExport()).catch((e) => {
   busy(''); console.error(e);
   const earthTab = Number(params.get('tab')) || 0;
   if (earthTab && params.get('auto')) chrome.runtime.sendMessage({ cmd: 'auto-hecho', earthTab, files: [], error: 'No se pudieron preparar los archivos: ' + e.message }).catch(() => { });

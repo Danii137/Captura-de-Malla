@@ -1,5 +1,105 @@
 # Registro — Captar malla
 
+## 5/11/2026 · Versión 2.1.0 — en segundo plano, más rápida, menos clics y STL para imprimir
+
+### Encargo
+El usuario probó la 2.0.0 («funciona bien, pero creo que se puede mejorar»). Pidió:
+1. que sea más rápida;
+2. que funcione en segundo plano y siga capturando aunque cambie de pestaña;
+3. optimizar los clics;
+4. que el STL salga como malla cerrada, con una plataforma de cierto espesor, lista para imprimir (las texturas le dan igual).
+
+### Lo que se encontró (comprobado en un Chrome de pruebas, noviembre de 2026)
+| Hallazgo | Cómo se comprobó |
+|---|---|
+| Con otra pestaña delante, Earth deja de dibujar (0 dibujos por segundo) | `bg_probe.mjs` (carpeta de pruebas temporal), con y sin ventana |
+| Solo con el foco emulado (`Emulation.setFocusEmulationEnabled`), dibuja, pero muy despacio: unos 360 dibujos por segundo, frente a unos 15.000 | Mismo experimento |
+| **Foco emulado + retransmisión de la pestaña (`Page.startScreencast`, 32 px): velocidad normal** con otra pestaña delante y con la ventana minimizada (16.000–18.000 dibujos por segundo; carga en unos 3 s) | Mismo experimento, con y sin ventana, y con la ventana minimizada |
+| La retransmisión no frena la captura con la pestaña a la vista | Madrid 300 × 200 m: 67 s con ella, sin ella y con un fotograma de cada 10 |
+| Las teselas (`/rt/earth/`) las pide un *worker*. La última llega 1,1–1,9 s antes del último dibujo. Con teselas pendientes, Earth puede pasar hasta 0,9 s sin dibujar | `net_probe.mjs`, siguiendo la red por CDP, 14 movimientos de cámara |
+| **El aviso «Novedades de Google Earth» (animado) hacía que la página no dejara de dibujar**: cada posición agotaba la espera de 35 s (255 s en vez de unos 60). Afectaba también a la 2.0.0 | Captura de pantalla de la prueba lenta; reproducido con un lienzo WebGL animado (`ANIM=1` en `area_test.mjs`) |
+| Una vista mayor a menos densidad (7680×4800 a 0,5) da **exactamente el mismo detalle** que 3840×2400: Earth decide por los píxeles reales | `earth_lod.mjs`: las mismas 1.023 teselas, en la misma zona |
+| La espera de cada posición es casi toda **descarga de Earth**: unas 1.400–2.500 peticiones por posición | `net_probe.mjs` |
+
+### Lo que se ha hecho
+- **Segundo plano** (`lib/earth.js`, `keepDrawing`):
+  - durante la captura, foco emulado + retransmisión de 32 px; `background.js` confirma cada fotograma;
+  - al terminar, aviso de Windows si la pestaña de Earth no estaba a la vista (permiso `notifications`); al pulsarlo se abre la carpeta.
+- **Espera de carga** (`waitIdle`):
+  - 1 s sin dibujos **del globo** (`globeDraws` en `hook.js`, programas con `uMeshToWorldMatrix`; ya no cuenta la interfaz de Earth);
+  - y 1 s sin teselas pendientes (`netWatch`/`netState` en `lib/injector.js`);
+  - si no se puede seguir la red: 2 s sin dibujar, como antes.
+- **Sin vista de conjunto aparte**: las alturas salen de la captura de la vista cenital que ya se hacía al preparar (`overviewOf`/`heightsInPts`), si tiene puntos de sobra en el rectángulo; si no, se hace la vista de conjunto de antes.
+- **Una sola sonda de detalle** a 100 m (antes, a 200 y a 100 m):
+  - se repite si sale con menos detalle de lo habitual;
+  - a 50 m si aparece algo más fino que 7 m.
+- **Memoria por zona** (`zoneTile` en `background.js`):
+  - el detalle máximo medido se recuerda 30 días en zonas de unos 2 km, y la siguiente captura cerca se salta la sonda;
+  - se olvida si las posiciones salen con otro detalle.
+- **Copia de la captura**: trozos de 8 MB, tres a la vez. 205 MB en 3,3 s.
+- **Clics** (`panel.js`):
+  - al soltar el rectángulo empieza sola (solo pide confirmación si pasa de 80 posiciones o de unos 800 MB);
+  - posiciones, tiempo y peso en vivo junto al rectángulo;
+  - «▭ Capturar otra área» al terminar, que va directa a marcar.
+- **STL para imprimir** (`printSolid`, `exportPrintSTL` y `checkClosed` en `lib/exporters.js`):
+  - relieve en rejilla (la altura más alta de cada nudo), huecos rellenados, paredes en el borde y base plana bajo el punto más bajo;
+  - en mm a escala 1:N (automática: el lado mayor en 200 mm como mucho), base de 3 mm y rejilla de 0,3 mm en la pieza, como mínimo 15 cm reales;
+  - opciones en el panel (escala y base) y en el visor (también la rejilla), compartidas.
+- La estimación de tiempo se ha recalibrado con las medidas nuevas.
+
+### Cómo se ha comprobado
+| Prueba | Resultado |
+|---|---|
+| Madrid 300 × 200 m, máximo, perfil nuevo, una prueba detrás de otra (`area_test.mjs`) | **2.0.0: 91 s · 2.1.0: 67 s** (un 26 % menos). Vista de conjunto 16 → 0 s; sondas 20 → 11 s; cerrar y copiar 12 → 7 s. Las 6 posiciones, 43 s frente a 49 s: es la descarga de Earth y varía de una vez a otra |
+| Extensión completa, 297 × 166 m, 4 posiciones, solo GLB (`e2e_area.mjs`) | Primera captura en la zona: 69 s desde soltar el rectángulo hasta tener el archivo. **Segunda («Capturar otra área», sin sonda): 43 s** |
+| Extensión completa con **la pestaña de Earth oculta desde el primer segundo** (`OCULTA=1 DOS=1`), GLB + STL, con todas las correcciones | Primera: **65,5 s**; segunda: **38,8 s**. Earth informa «visible» mientras captura. GLB de 77 MB y STL de 23,5 MB (1:1500, 198 × 111 × 28 mm). El STL que guardó la extensión, en Blender: 0 aristas abiertas y normales coherentes |
+| Captura rápida y su STL (`RAPIDA=1`) | Zona = cuadrado del recorte de 500 m: 1:2500, 200 × 200 × 34 mm, 42,8 MB. En Blender: cerrado |
+| Lienzo WebGL animado sin parar encima de Earth (`ANIM=1`) | 67 s, como sin él: la interfaz ya no alarga las esperas |
+| STL de Madrid 300 × 200 m (`stl_test.mjs`) | 1:1500 → 200 × 133 × 36 mm, base de 3,00 mm, 599.000 triángulos, 28,6 MB, 0,2 s. Cerrado: 0 aristas mal, 0 degenerados, volumen de 397 cm³ |
+| El mismo STL en Blender 4.4 (`blender_stl_check.py`) | 0 aristas no manifold, 0 de borde, normales coherentes, volumen positivo. En imagen: plaza, fachadas, estatua, farolas, paredes y base |
+| Revisión independiente (otro agente), incluidos casos límite del STL (una celda, origen desplazado, escala 0 o negativa, zona sin malla) | STL cerrado en todos. 8 puntos, aplicados 7 (ver abajo) |
+
+### Revisión independiente y correcciones
+**Aplicados:**
+1. Esc justo al soltar el rectángulo no cancelaba: la captura arrancaba igual.
+2. La memoria por zona se borraba sola en modo «Alto» o al bajar el detalle por tamaño.
+3. Una sonda que pillara la carga a medias podía fijar menos detalle 30 días. Ahora se repite la sonda si sale con menos detalle de lo habitual, y la zona se olvida si aparece otro detalle.
+4. El panel podía pisar las opciones del STL cambiadas en el visor.
+5. Alturas de la vista cenital con pocos puntos (vista muy lejana): ahora se exige densidad; si no, vista de conjunto.
+6. El seguimiento de red quedaba encendido si Earth no respondía al preparar.
+7. Una estimación tardía podía pisar la medida del rectángulo.
+
+**No aplicado:** sondar siempre también a 50 m. Solo serviría si existieran teselas de unos 5 m, que no se han visto en ningún sitio. Queda como riesgo anotado.
+
+### Decisiones tomadas por Claude, para revisar (versión 2.1)
+| # | Decisión | Motivo | Cómo cambiarla |
+|---|---|---|---|
+| 1 | Al soltar el rectángulo **empieza sin confirmar** (salvo áreas por encima de los límites) | Es el clic que sobraba; se puede cancelar en el panel | `afterDraw` en `panel.js` |
+| 2 | **STL de Earth = sólido para imprimir** siempre (ya no la superficie suelta) | Es lo que se pidió; la superficie abierta no sirve para imprimir | `doExport` en `viewer.js` |
+| 3 | Relieve **visto desde arriba**: aleros, soportales y árboles salen macizos hasta el suelo | Una sola pieza, cerrada, sin voladizos ni soportes | `printSolid` en `lib/exporters.js` |
+| 4 | Escala automática con el lado mayor ≤ **200 mm**; base de **3 mm**; rejilla de **0,3 mm** (impresora de filamento) | Cabe en la mayoría de bandejas; 0,3 mm es menos que una boquilla de 0,4 | Panel (escala y base) y visor (también la rejilla) |
+| 5 | Aviso de Windows **solo si la pestaña de Earth no está a la vista** | Que no moleste si estás mirando | `notify` en `background.js` |
+| 6 | Memoria del detalle por zona: **30 días, zonas de ~2 km** | Cubre una ciudad mediana con pocas sondas | `zoneTile` en `background.js` |
+| 7 | No se cierra el aviso «Novedades» de Earth: con contar solo el globo basta | No tocar la interfaz de Earth más de lo necesario | — |
+
+### Portada del repositorio (README con imágenes)
+- Imágenes en `docs/img/` (9 JPEG, 1,8 MB):
+  - 4 capturas del flujo (panel, rectángulo, capturando, terminado);
+  - el visor;
+  - 2 renders del GLB con texturas;
+  - 2 del STL.
+- Se rehacen con `pruebas/capturas_readme.mjs` (Plaza Mayor, 300 × 220 m: 78 s desde soltar hasta tener GLB + STL), los renders con `blender_render.py` y `blender_stl_check.py`, y la conversión a JPEG.
+- Comprobado en esa captura:
+  - GLB de 94,6 MB, validador de Khronos 0 errores y 0 avisos;
+  - STL de 31,4 MB, 200 × 147 × 36 mm a 1:1500, cerrado en Blender.
+- Las imágenes llevan la atribución a Google Earth y sus proveedores.
+
+### Abierto / sin comprobar
+- Con un **Chrome con ventana**, el segundo plano se ha comprobado en el experimento (pestaña oculta y minimizada), pero la extensión completa solo se ha probado sin ventana.
+- El aviso de Windows: no se ve en las pruebas sin ventana. Probado el código, no el aviso en pantalla.
+- La velocidad la marca la descarga de Earth: con mala conexión, cada posición tardará más.
+- No se ha impreso ninguna pieza: el STL se ha comprobado como malla cerrada (en el código y en Blender), no en un programa de impresora (laminador).
+
 ## 5/11/2026 · Versión 2.0.0 — solo Google Earth, captura automática de un área
 
 ### Encargo

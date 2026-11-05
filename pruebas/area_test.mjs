@@ -18,21 +18,30 @@ const send0 = (m, p, s) => Promise.race([cdp0.send(m, p, s), new Promise((_, rej
 const { targetId } = await send0('Target.createTarget', { url: 'about:blank' });
 const { sessionId: S } = await send0('Target.attachToTarget', { targetId, flatten: true });
 const inj = createInjector({ send: (sid, m, p) => send0(m, p, sid || S), hookSource, b64decode: (s) => new Uint8Array(Buffer.from(s, 'base64')) });
-cdp0.on((method, params, sid) => { if (!sid) return; inj.onEvent(sid === S ? '' : sid, method, params); });
+cdp0.on((method, params, sid) => {
+  if (!sid) return;
+  // retransmisión que mantiene a Earth dibujando en segundo plano: confirmar cada fotograma
+  if (method === 'Page.screencastFrame') { cdp0.send('Page.screencastFrameAck', { sessionId: params.sessionId }, sid).catch(() => { }); return; }
+  inj.onEvent(sid === S ? '' : sid, method, params);
+});
 await inj.setupRoot();
 await send0('Page.navigate', { url: `https://earth.google.com/web/@${LAT},${LON},650a,500d,35y,0h,0t,0r` }, S);
 await new Promise((r) => setTimeout(r, 7000));
 await send0('Runtime.evaluate', { expression: `(() => { const b = [...document.querySelectorAll('button')].find(b => /rechazar todo|reject all/i.test(b.innerText||'')); if (b) b.click(); })()` }, S).catch(() => { });
+// ANIM=1: un lienzo WebGL animado sin parar encima de Earth (como el aviso «Novedades», que no deja de dibujar)
+if (process.env.ANIM) await send0('Runtime.evaluate', { expression: `(() => { const c = document.createElement('canvas'); c.width = 120; c.height = 80; c.style.cssText = 'position:fixed;right:10px;bottom:60px;z-index:99999'; document.body.appendChild(c); const g = c.getContext('webgl'); let t = 0; (function f() { t += 0.03; g.clearColor(0.5 + 0.5 * Math.sin(t), 0.3, 0.6, 1); g.clear(g.COLOR_BUFFER_BIT); g.drawArrays(g.POINTS, 0, 0); requestAnimationFrame(f); })(); return 1; })()` }, S);
 const job = E.createEarthJob({
   inj, cdp: (m, p) => send0(m, p, S), decode: D,
+  bg: process.env.BG ? JSON.parse(process.env.BG) : {}, // p. ej. BG='{"screencast":false}'
   progress: (txt, f) => console.log(t(), '·', txt, f !== undefined ? Math.round(f * 100) + '%' : ''),
   log: (...a) => console.log(t(), '  ', ...a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))),
 });
 await job.waitIdle({ maxMs: 30000 });
 const td = await job.topDown();
-console.log(t(), 'vista cenital', JSON.stringify(td));
+const { overview, ...tdv } = td;
+console.log(t(), 'vista cenital', JSON.stringify(tdv), 'alturas guardadas:', overview ? overview.pts.length / 3 : 0, 'puntos');
 const shot = await send0('Page.captureScreenshot', { format: 'jpeg', quality: 60 }, S); fs.writeFileSync(path.join(OUT, NAME + '_antes.jpg'), Buffer.from(shot.data, 'base64'));
-const res = await job.runArea({ lat: +LAT, lon: +LON, W: +W, H: +H, a: td.view.a }, { detail: DET });
+const res = await job.runArea({ lat: +LAT, lon: +LON, W: +W, H: +H, a: td.view.a }, { detail: DET, overview: process.env.SIN_VISTA ? null : overview });
 console.log(t(), 'resultado', JSON.stringify({ s: res.seconds, bytes: res.bytes.length, avisos: res.warnings, area: Object.assign({}, res.area, { cells: res.area.cells.length }) }));
 fs.writeFileSync(path.join(OUT, NAME + '.cmal'), res.bytes);
 fs.writeFileSync(path.join(OUT, NAME + '.json'), JSON.stringify(res.area, null, 1));
